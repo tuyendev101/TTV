@@ -16,7 +16,7 @@ webhook_url = data.get('n8n_webhook')
 webhook_token = data.get('webhook_token')
 
 # DÁN LINK GOOGLE APPS SCRIPT MỚI CỦA BẠN VÀO ĐÂY:
-gas_url = "THAY_BẰNG_LINK_WEB_APP_URL_CỦA_BẠN"
+gas_url = "https://script.google.com/macros/s/AKfycbwmaJ_f5qLZn789WG-ikiIyRn4g99k5KkoCcV4tzU_wVZ8BT3g4sj-iM-2tnUGLfyug/exec"
 
 headers = {}
 if webhook_token:
