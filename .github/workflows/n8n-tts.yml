@@ -23,4 +23,5 @@ jobs:
       - name: Run n8n Adapter
         env:
           PAYLOAD_DATA: ${{ toJson(github.event.client_payload) }}
+          HF_HUB_DISABLE_SYMLINKS: "1"
         run: python n8n_adapter.py
