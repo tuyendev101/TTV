@@ -14,7 +14,9 @@ speed_val = data.get('speed', 1.0)
 webhook_url = data.get('n8n_webhook')
 webhook_token = data.get('webhook_token')
 
-# Thiết lập Header bảo mật (x-webhook-token)
+# DÁN LINK GOOGLE APPS SCRIPT CỦA BẠN VÀO ĐÂY:
+gas_url = "THAY_BẰNG_LINK_WEB_APP_URL_CỦA_BẠN"
+
 headers = {}
 if webhook_token:
     headers['x-webhook-token'] = webhook_token
@@ -41,26 +43,31 @@ except Exception as e:
         requests.post(webhook_url, json={"status": "error", "message": f"Lỗi quá trình xử lý: {str(e)}"}, headers=headers)
     exit(1)
 
-# 3. GỬI FILE MP3 VỀ N8N
-if webhook_url:
-    if os.path.exists("result.mp3"):
-        print(f"Đang gửi file MP3 về n8n tại: {webhook_url}")
-        try:
-            with open("result.mp3", "rb") as f:
-                # Gói file vào biến 'data', khai báo là file MP3
-                files_payload = {'data': ('audio.mp3', f, 'audio/mpeg')}
-                text_payload = {'status': 'success'}
+# 3. GỬI FILE MP3 LÊN GOOGLE DRIVE & BÁO CÁO VỀ N8N
+if os.path.exists("result.mp3"):
+    print("Đang tải file MP3 trực tiếp lên Google Drive...")
+    try:
+        with open("result.mp3", "rb") as f:
+            files_payload = {'file': ('audio_result.mp3', f, 'audio/mpeg')}
+            data_payload = {'filename': 'audio_result.mp3'}
+            
+            # Gửi file cho Google Apps Script
+            response = requests.post(gas_url, data=data_payload, files=files_payload, timeout=120)
+            result_json = response.json()
+            
+            if result_json.get("status") == "success":
+                print(f"Tải lên Drive thành công! Link file: {result_json.get('fileUrl')}")
                 
-                # Bắn file về n8n (chờ tối đa 120 giây cho thao tác upload)
-                response = requests.post(webhook_url, data=text_payload, files=files_payload, headers=headers, timeout=120)
-                
-                if response.status_code == 200:
-                    print("Tuyệt vời! Đã ném file MP3 vào n8n thành công!")
-                else:
-                    print(f"Lỗi từ chối của n8n: {response.status_code} - {response.text}")
-        except Exception as e:
-            print(f"Lỗi mạng khi gửi file: {e}")
+                # Báo cáo kết quả về n8n (chỉ gửi link Drive dạng Text, n8n không phải gánh file)
+                if webhook_url:
+                    requests.post(webhook_url, json={"status": "success", "drive_link": result_json.get('fileUrl')}, headers=headers)
+                    print("Đã báo cáo link thành công về n8n!")
+            else:
+                print(f"Google Apps Script báo lỗi: {result_json.get('message')}")
+                if webhook_url:
+                    requests.post(webhook_url, json={"status": "error", "message": f"Lỗi tải lên Drive: {result_json.get('message')}"}, headers=headers)
+                    
+    except Exception as e:
+        print(f"Lỗi kết nối tải lên Drive: {e}")
+        if webhook_url:
             requests.post(webhook_url, json={"status": "error", "message": str(e)}, headers=headers)
-    else:
-        print("Lỗi: Không tìm thấy file result.mp3 sau khi nén.")
-        requests.post(webhook_url, json={"status": "error", "message": "Nén MP3 thất bại, không có file để gửi"}, headers=headers)
