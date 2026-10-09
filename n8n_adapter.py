@@ -15,8 +15,8 @@ speed_val = data.get('speed', 1.0)
 webhook_url = data.get('n8n_webhook')
 webhook_token = data.get('webhook_token')
 
-# DÁN LINK GOOGLE APPS SCRIPT MỚI CỦA BẠN VÀO ĐÂY:
-gas_url = "https://script.google.com/macros/s/AKfycbwXpIJx50PW2ax02zjVM1-bJc_XR35bZFgYnrTeXhLm2sg3rDKKOct3q-_1PuRIr6c/exec"
+# DÁN LINK GOOGLE APPS SCRIPT CỦA BẠN VÀO ĐÂY (PHẢI KẾT THÚC BẰNG /exec):
+gas_url = "THAY_BẰNG_LINK_WEB_APP_URL_CỦA_BẠN_CÓ_ĐUÔI_/EXEC"
 
 headers = {}
 if webhook_token:
@@ -32,8 +32,9 @@ try:
     tts_engine.save(audio, "result.wav")
     print("Tạo file WAV gốc thành công!")
     
-    print("Đang nén sang định dạng MP3...")
-    subprocess.run("ffmpeg -i result.wav -b:a 128k result.mp3 -y", shell=True, check=True)
+    # Nén MP3 ở mức 64kbps, Mono (Giọng nói cực nét nhưng siêu nhẹ, 10 phút < 5MB)
+    print("Đang nén sang định dạng MP3 (Tối ưu dung lượng)...")
+    subprocess.run("ffmpeg -i result.wav -b:a 64k -ac 1 result.mp3 -y", shell=True, check=True)
     print("Nén MP3 thành công!")
     
 except Exception as e:
@@ -46,7 +47,6 @@ except Exception as e:
 if os.path.exists("result.mp3"):
     print("Đang mã hóa dữ liệu và tải lên Google Drive...")
     try:
-        # Đọc file MP3 và biến thành chuỗi văn bản Base64
         with open("result.mp3", "rb") as f:
             encoded_string = base64.b64encode(f.read()).decode('utf-8')
             
@@ -56,17 +56,21 @@ if os.path.exists("result.mp3"):
             'fileData': encoded_string
         }
         
-        # Gửi gói văn bản JSON chứa file cho Google
+        print("Bắt đầu gửi lệnh sang Google Apps Script...")
         response = requests.post(gas_url, json=json_payload, timeout=120)
         
         try:
             result_json = response.json()
         except Exception:
-            result_json = {"status": "error", "message": "Google trả về dữ liệu không hợp lệ"}
+            # BẪY BẮT LỖI: Nếu Google ném ra trang web HTML, in thẳng ra log
+            print("--- LỖI CHI TIẾT TỪ GOOGLE ---")
+            print(f"Mã HTTP: {response.status_code}")
+            print(f"Nội dung: {response.text[:500]}")
+            print("------------------------------")
+            result_json = {"status": "error", "message": "Google từ chối nhận. Xem chi tiết trong log GitHub."}
 
         if result_json.get("status") == "success":
             print(f"Tải lên Drive thành công! Link file: {result_json.get('fileUrl')}")
-            
             if webhook_url:
                 requests.post(webhook_url, json={"status": "success", "drive_link": result_json.get('fileUrl')}, headers=headers)
                 print("Đã báo cáo link thành công về n8n!")
