@@ -1,0 +1,26 @@
+name: n8n TTS Automation
+on:
+  repository_dispatch:
+    types: [generate_tts_event]
+
+jobs:
+  generate_audio:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12' # Có thể thay đổi tùy yêu cầu của VieNeu-TTS
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install requests
+
+      - name: Run n8n Adapter
+        env:
+          PAYLOAD_DATA: ${{ toJson(github.event.client_payload) }}
+        run: python n8n_adapter.py
