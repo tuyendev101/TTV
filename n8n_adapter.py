@@ -9,9 +9,14 @@ data = json.loads(payload_str)
 
 text = data.get('text', 'Xin chào, đây là hệ thống thử nghiệm.')
 webhook_url = data.get('n8n_webhook')
-webhook_token = data.get('webhook_token') # Mật khẩu bảo mật n8n
+webhook_token = data.get('webhook_token')
 
-# 2. Lưu văn bản ra file text (Để truyền vào công cụ TTS)
+# Đưa biến headers lên khai báo ngay từ đầu để dùng chung
+headers = {}
+if webhook_token:
+    headers['x-webhook-token'] = webhook_token
+
+# 2. Lưu văn bản ra file text
 with open("input.txt", "w", encoding="utf-8") as f:
     f.write(text)
 
@@ -19,8 +24,7 @@ print("Bắt đầu tạo giọng nói...")
 
 # ==========================================
 # 3. CHẠY LỆNH LÕI CỦA VIENEU-TTS
-# LƯU Ý: Thay thế câu lệnh bên dưới bằng lệnh chạy file Python của repo này
-# Ví dụ giả định: python inference.py --text_file input.txt --output result.wav
+# BẠN CẦN THAY FILE main.py THÀNH TÊN FILE ĐÚNG CỦA REPO
 # ==========================================
 command = "python main.py --text input.txt --output result.wav"
 subprocess.run(command, shell=True)
@@ -30,12 +34,6 @@ if webhook_url:
     if os.path.exists("result.wav"):
         print(f"Đang gửi thẳng file âm thanh về n8n tại: {webhook_url}")
         try:
-            # Kẹp mật khẩu vào Header để vượt qua chốt chặn bảo mật của n8n
-            headers = {}
-            if webhook_token:
-                headers['x-webhook-token'] = webhook_token
-
-            # Gói file vào biến 'data'
             with open("result.wav", "rb") as f:
                 files_payload = {'data': ('audio.wav', f, 'audio/wav')}
                 text_payload = {'status': 'success'}
@@ -51,4 +49,5 @@ if webhook_url:
             requests.post(webhook_url, json={"status": "error", "message": str(e)}, headers=headers)
     else:
         print("Lỗi: Không tìm thấy file result.wav được tạo ra.")
-        requests.post(webhook_url, json={"status": "error", "message": "Quá trình render TTS thất bại"}, headers=headers)
+        # Bây giờ lệnh gửi lỗi này đã có biến headers hợp lệ
+        requests.post(webhook_url, json={"status": "error", "message": "Quá trình render TTS thất bại do không chạy được code lõi"}, headers=headers)
