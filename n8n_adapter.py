@@ -2,84 +2,109 @@ import os
 import json
 import requests
 import subprocess
-import base64
 from vieneu import Vieneu
 
-# 1. NHẬN DỮ LIỆU TỪ n8n
+# 1. NHẬN DỮ LIỆU TỪ N8N (ẨN DANH TRONG LOG GITHUB)
 payload_str = os.environ.get('PAYLOAD_DATA', '{}')
-data = json.loads(payload_str)
+try:
+    data = json.loads(payload_str)
+except:
+    data = {}
 
-text = data.get('text', 'Xin chào, đây là hệ thống thử nghiệm.')
+text = data.get('text', 'Xin chào')
 voice_name = data.get('voice', 'Hải Đăng')
 speed_val = data.get('speed', 1.0)
 webhook_url = data.get('n8n_webhook')
 webhook_token = data.get('webhook_token')
+file_name = data.get('file_name', 'audio_result.mp3')
 
-# DÁN LINK GOOGLE APPS SCRIPT CỦA BẠN VÀO ĐÂY (PHẢI KẾT THÚC BẰNG /exec):
-gas_url = "https://script.google.com/macros/s/AKfycbwXpIJx50PW2ax02zjVM1-bJc_XR35bZFgYnrTeXhLm2sg3rDKKOct3q-_1PuRIr6c/exec"
+# Thông tin xác thực Google Drive
+client_id = data.get('client_id')
+client_secret = data.get('client_secret')
+refresh_token = data.get('refresh_token')
+folder_id = data.get('folder_id')
 
 headers = {}
 if webhook_token:
     headers['x-webhook-token'] = webhook_token
 
-print(f"Bắt đầu tạo giọng '{voice_name}' (Tốc độ: {speed_val}) cho văn bản: {text}")
+def report_to_n8n(status, message, drive_link=None):
+    if not webhook_url:
+        return
+    payload = {"status": status, "message": message}
+    if drive_link:
+        payload["drive_link"] = drive_link
+    try:
+        requests.post(webhook_url, json=payload, headers=headers, timeout=30)
+    except:
+        pass
 
-# 2. KHỞI CHẠY AI VÀ TẠO ÂM THANH
+print(f"Bắt đầu tạo giọng '{voice_name}' (Tốc độ: {speed_val})")
+
+# 2. KHỞI CHẠY AI & NÉN
 try:
     tts_engine = Vieneu()
     audio = tts_engine.infer(text, voice=voice_name, speed=speed_val)
-    
     tts_engine.save(audio, "result.wav")
-    print("Tạo file WAV gốc thành công!")
+    print("Tạo âm thanh AI thành công.")
     
-    # Nén MP3 ở mức 64kbps, Mono (Giọng nói cực nét nhưng siêu nhẹ, 10 phút < 5MB)
-    print("Đang nén sang định dạng MP3 (Tối ưu dung lượng)...")
-    subprocess.run("ffmpeg -i result.wav -b:a 64k -ac 1 result.mp3 -y", shell=True, check=True)
-    print("Nén MP3 thành công!")
-    
+    # Nén 64k mono cực nhẹ, loglevel error để giấu chi tiết nén
+    subprocess.run("ffmpeg -i result.wav -b:a 64k -ac 1 result.mp3 -y -loglevel error", shell=True, check=True)
+    print("Nén file MP3 hoàn tất.")
 except Exception as e:
-    print(f"Lỗi hệ thống/AI: {e}")
-    if webhook_url:
-        requests.post(webhook_url, json={"status": "error", "message": f"Lỗi quá trình xử lý: {str(e)}"}, headers=headers)
+    print("Lỗi trong quá trình tạo âm thanh hoặc nén file.")
+    report_to_n8n("error", f"Lỗi TTS: {str(e)}")
     exit(1)
 
-# 3. MÃ HÓA VÀ GỬI FILE LÊN GOOGLE DRIVE
-if os.path.exists("result.mp3"):
-    print("Đang mã hóa dữ liệu và tải lên Google Drive...")
-    try:
-        with open("result.mp3", "rb") as f:
-            encoded_string = base64.b64encode(f.read()).decode('utf-8')
-            
-        json_payload = {
-            'filename': 'audio_result.mp3',
-            'mimeType': 'audio/mpeg',
-            'fileData': encoded_string
-        }
-        
-        print("Bắt đầu gửi lệnh sang Google Apps Script...")
-        response = requests.post(gas_url, json=json_payload, timeout=120)
-        
-        try:
-            result_json = response.json()
-        except Exception:
-            # BẪY BẮT LỖI: Nếu Google ném ra trang web HTML, in thẳng ra log
-            print("--- LỖI CHI TIẾT TỪ GOOGLE ---")
-            print(f"Mã HTTP: {response.status_code}")
-            print(f"Nội dung: {response.text[:500]}")
-            print("------------------------------")
-            result_json = {"status": "error", "message": "Google từ chối nhận. Xem chi tiết trong log GitHub."}
+# 3. UPLOAD LÊN GOOGLE DRIVE (API CHÍNH THỨC)
+if not all([client_id, client_secret, refresh_token, folder_id]):
+    print("Lỗi: Thiếu thông tin Google Drive API từ đầu vào.")
+    report_to_n8n("error", "Thiếu Client ID, Secret, Refresh Token hoặc Folder ID.")
+    exit(1)
 
-        if result_json.get("status") == "success":
-            print(f"Tải lên Drive thành công! Link file: {result_json.get('fileUrl')}")
-            if webhook_url:
-                requests.post(webhook_url, json={"status": "success", "drive_link": result_json.get('fileUrl')}, headers=headers)
-                print("Đã báo cáo link thành công về n8n!")
-        else:
-            print(f"Google Apps Script báo lỗi: {result_json.get('message')}")
-            if webhook_url:
-                requests.post(webhook_url, json={"status": "error", "message": f"Lỗi tải lên Drive: {result_json.get('message')}"}, headers=headers)
-                
-    except Exception as e:
-        print(f"Lỗi kết nối tải lên Drive: {e}")
-        if webhook_url:
-            requests.post(webhook_url, json={"status": "error", "message": str(e)}, headers=headers)
+print("Đang khởi tạo kết nối tải trực tiếp lên Google Drive...")
+try:
+    # A. Đổi Refresh Token lấy Access Token dùng 1 lần
+    token_response = requests.post(
+        "https://oauth2.googleapis.com/token",
+        data={
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token"
+        }
+    )
+    token_data = token_response.json()
+    if "access_token" not in token_data:
+        raise Exception(f"Không lấy được Access Token (Kiểm tra lại Credentials).")
+    
+    access_token = token_data["access_token"]
+    
+    # B. Upload file thông qua cơ chế Multipart của Google
+    metadata = {
+        "name": file_name,
+        "parents": [folder_id]
+    }
+    files = {
+        'metadata': (None, json.dumps(metadata), 'application/json'),
+        'file': (file_name, open("result.mp3", "rb"), 'audio/mpeg')
+    }
+    
+    upload_response = requests.post(
+        "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink",
+        headers={"Authorization": f"Bearer {access_token}"},
+        files=files
+    )
+    upload_data = upload_response.json()
+    
+    if "webViewLink" in upload_data:
+        print("Đẩy file lên Google Drive thành công tuyệt đối!")
+        report_to_n8n("success", "Upload hoàn tất", drive_link=upload_data["webViewLink"])
+    else:
+        raise Exception(f"Google Drive từ chối upload: {upload_data}")
+
+except Exception as e:
+    # Ẩn lỗi khỏi console GitHub để chống rò rỉ mã token
+    print("Gặp lỗi mạng hoặc xác thực trong quá trình tải lên. Chi tiết lỗi đã gửi về n8n.")
+    report_to_n8n("error", f"Lỗi Upload Drive: {str(e)}")
+    exit(1)
